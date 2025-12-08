@@ -1,6 +1,6 @@
 package com.safepoint.api.controller;
 
-import com.safepoint.api.model.dto.AnalysisRequest;
+import com.safepoint.api.model.AnalysisRequest;
 import com.safepoint.api.model.dto.AnalysisResponse;
 import com.safepoint.api.service.AnalysisService;
 import io.swagger.v3.oas.annotations.Operation;
