@@ -2,10 +2,6 @@ package com.safepoint.api.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -18,85 +14,90 @@ import java.util.Map;
 @Slf4j
 public class SamhsaService {
 
-  private final RestTemplate restTemplate;
+    private final RestTemplate restTemplate;
 
-  // Correct SAMHSA API endpoint as per FindTreatment.gov Developer Guide v1.10 (Jan 2025)
-  private static final String SAMHSA_API_URL =
-      "https://findtreatment.gov/locator/exportsAsJson/v2";
+    private static final String SAMHSA_URL =
+        "https://findtreatment.gov/locator/exportsAsJson/v2";
 
-  public SamhsaService(@Qualifier("samhsaRestTemplate") RestTemplate restTemplate) {
-    this.restTemplate = restTemplate;
-  }
+    // Default radius — 16 km (~10 miles)
+    private static final double DEFAULT_RADIUS_METERS = 16093.0;
 
-  /**
-   * Fetches nearby mental health treatment facilities from the SAMHSA FindTreatment.gov API.
-   * Uses limitType=2 (distance in meters) with a 40km radius.
-   *
-   * @param latitude   user latitude
-   * @param longitude  user longitude
-   * @param insurance  insurance type filter (MEDICAID, MEDICARE, PRIVATE, NONE, UNKNOWN)
-   * @param maxResults max number of results
-   */
-  public List<Map<String, Object>> getFacilities(double latitude,
-                                                 double longitude,
-                                                 String insurance,
-                                                 int maxResults) {
-    try {
-      // Format: "lat,lng" (quoted as per API docs)
-      String sAddr = latitude + "," + longitude;
+    // Max allowed radius to prevent abuse — 100 miles
+    private static final double MAX_RADIUS_METERS = 160934.0;
 
-      UriComponentsBuilder builder = UriComponentsBuilder
-          .fromUriString(SAMHSA_API_URL)
-          .queryParam("sAddr", sAddr)
-          .queryParam("limitType", 2)          // distance-based search
-          .queryParam("limitValue", 40000)     // 40km radius
-          .queryParam("pageSize", maxResults)
-          .queryParam("page", 1)
-          .queryParam("sort", 0);
-
-      // Apply insurance/payment filter if not UNKNOWN
-      if (insurance != null && !insurance.equalsIgnoreCase("UNKNOWN")) {
-        String payCode = mapInsuranceToPayCode(insurance);
-        if (payCode != null) {
-          builder.queryParam("filterPay", payCode);
-        }
-      }
-
-      String url = builder.toUriString();
-      log.info("Calling SAMHSA API: {}", url);
-
-      ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-          url,
-          HttpMethod.GET,
-          null,
-          new ParameterizedTypeReference<Map<String, Object>>() {}
-      );
-
-      if (response.getBody() == null) return Collections.emptyList();
-
-      @SuppressWarnings("unchecked")
-      List<Map<String, Object>> rows =
-          (List<Map<String, Object>>) response.getBody().get("rows");
-
-      return rows != null ? rows : Collections.emptyList();
-
-    } catch (Exception e) {
-      log.error("SAMHSA API error: {}", e.getMessage());
-      return Collections.emptyList();
+    public SamhsaService(@Qualifier("samhsaRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
     }
-  }
 
-  /**
-   * Maps insurance type to SAMHSA filterPay code.
-   * See FindTreatment.gov API documentation for full list.
-   */
-  private String mapInsuranceToPayCode(String insurance) {
-    return switch (insurance.toUpperCase()) {
-      case "MEDICAID" -> "4";
-      case "MEDICARE" -> "5";
-      case "PRIVATE"  -> "6";
-      case "NONE"     -> "1";  // self-pay / sliding fee
-      default         -> null;
-    };
-  }
+    /**
+     * Finds mental health treatment facilities near a given location.
+     *
+     * @param latitude      user latitude
+     * @param longitude     user longitude
+     * @param insurance     insurance type filter (MEDICAID, MEDICARE, PRIVATE, NONE, UNKNOWN)
+     * @param limit         max number of results to return
+     * @param radiusMeters  search radius in meters (SAMHSA limitValue)
+     */
+    public List<Map<String, Object>> findFacilities(
+            double latitude,
+            double longitude,
+            String insurance,
+            int    limit,
+            double radiusMeters) {
+
+        // Clamp radius to safe range
+        double radius = Math.min(Math.max(radiusMeters, 1000), MAX_RADIUS_METERS);
+
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(SAMHSA_URL)
+            .queryParam("sAddr",      latitude + "," + longitude)
+            .queryParam("limitType",  2)              // 2 = distance-based
+            .queryParam("limitValue", radius)
+            .queryParam("pageSize",   limit)
+            .queryParam("page",       1)
+            .queryParam("sort",       0);             // 0 = sort by distance
+
+        // Insurance type filter
+        String filterPay = mapInsuranceToFilter(insurance);
+        if (filterPay != null) {
+            builder.queryParam("filterPay", filterPay);
+        }
+
+        try {
+            String url = builder.toUriString();
+            log.info("SAMHSA query: radius={}m insurance={}", (int) radius, insurance);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = restTemplate.getForObject(url, Map.class);
+
+            if (response == null) return Collections.emptyList();
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) response.get("rows");
+
+            return rows != null ? rows : Collections.emptyList();
+
+        } catch (Exception e) {
+            log.error("SAMHSA API error: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Overload with default radius.
+     */
+    public List<Map<String, Object>> findFacilities(
+            double latitude, double longitude, String insurance, int limit) {
+        return findFacilities(latitude, longitude, insurance, limit, DEFAULT_RADIUS_METERS);
+    }
+
+    private String mapInsuranceToFilter(String insurance) {
+        if (insurance == null || insurance.equalsIgnoreCase("UNKNOWN")) return null;
+        return switch (insurance.toUpperCase()) {
+            case "MEDICAID" -> "MD";
+            case "MEDICARE" -> "MC";
+            case "PRIVATE"  -> "PI";
+            case "NONE"     -> "SF"; // Sliding fee / no insurance
+            default         -> null;
+        };
+    }
 }

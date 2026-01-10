@@ -2,7 +2,7 @@ package com.safepoint.api.controller;
 
 import com.safepoint.api.service.SamhsaService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Parameter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,31 +13,31 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/resources")
 @RequiredArgsConstructor
-@Tag(name = "Resources", description = "Treatment facility lookup via SAMHSA")
 public class ResourceController {
 
     private final SamhsaService samhsaService;
 
-    /**
-     * Returns nearby treatment facilities filtered by location and insurance type.
-     * Results are sourced from the SAMHSA national treatment locator.
-     */
     @GetMapping("/facilities")
-    @Operation(
-        summary = "Find nearby treatment facilities",
-        description = "Returns mental health treatment facilities near the given coordinates, " +
-                      "filtered by insurance type. Insurance can be: " +
-                      "MEDICAID, MEDICARE, PRIVATE, NONE, UNKNOWN."
-    )
+    @Operation(summary = "Find nearby mental health treatment facilities",
+               description = "Queries SAMHSA FindTreatment.gov API for facilities within the given radius")
     public ResponseEntity<List<Map<String, Object>>> getFacilities(
+            @Parameter(description = "User latitude")
             @RequestParam double latitude,
+
+            @Parameter(description = "User longitude")
             @RequestParam double longitude,
+
+            @Parameter(description = "Insurance type filter: MEDICAID, MEDICARE, PRIVATE, NONE, UNKNOWN")
             @RequestParam(defaultValue = "UNKNOWN") String insurance,
-            @RequestParam(defaultValue = "10") int limit) {
 
+            @Parameter(description = "Maximum number of results")
+            @RequestParam(defaultValue = "25") int limit,
+
+            @Parameter(description = "Search radius in meters (e.g. 8047=5mi, 16093=10mi, 40234=25mi, 80467=50mi)")
+            @RequestParam(defaultValue = "16093") double radiusMeters
+    ) {
         List<Map<String, Object>> facilities =
-            samhsaService.getFacilities(latitude, longitude, insurance, limit);
-
+            samhsaService.findFacilities(latitude, longitude, insurance, limit, radiusMeters);
         return ResponseEntity.ok(facilities);
     }
 }
