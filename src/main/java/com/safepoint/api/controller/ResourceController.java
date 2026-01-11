@@ -37,10 +37,13 @@ public class ResourceController {
       @RequestParam(defaultValue = "200") int limit,
 
       @Parameter(description = "Search radius in meters (e.g. 8047=5mi, 16093=10mi, 40234=25mi, 80467=50mi)")
-      @RequestParam(defaultValue = "16093") double radiusMeters
+      @RequestParam(defaultValue = "16093") double radiusMeters,
+
+      @Parameter(description = "Service type: mh (mental health), sa (substance abuse), both")
+      @RequestParam(defaultValue = "mh") String serviceType
   ) {
     List<Map<String, Object>> facilities =
-        samhsaService.findFacilities(latitude, longitude, insurance, limit, radiusMeters);
+        samhsaService.findFacilities(latitude, longitude, insurance, limit, radiusMeters, serviceType);
     return ResponseEntity.ok(facilities);
   }
 }
