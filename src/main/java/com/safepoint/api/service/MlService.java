@@ -1,7 +1,7 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.model.dto.AnalysisResponse.MlAnalysisResult;
-import com.safepoint.api.model.dto.AnalysisResponse.MlScores;
+import com.safepoint.api.model.AnalysisResponse.MlAnalysisResult;
+import com.safepoint.api.model.AnalysisResponse.MlScores;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;

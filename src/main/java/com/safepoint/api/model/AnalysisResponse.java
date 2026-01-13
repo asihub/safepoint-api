@@ -1,4 +1,4 @@
-package com.safepoint.api.model.dto;
+package com.safepoint.api.model;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
