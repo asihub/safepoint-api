@@ -1,6 +1,6 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.model.dto.AuthDto;
+import com.safepoint.api.dto.AuthDto;
 import com.safepoint.api.model.entity.AnonymousUser;
 import com.safepoint.api.repository.AnonymousUserRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,80 +17,93 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AnonymousUserService {
 
-    private final AnonymousUserRepository repository;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-    private final SecureRandom random = new SecureRandom();
+  private final AnonymousUserRepository repository;
+  private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+  private final SecureRandom random = new SecureRandom();
 
-    // Word lists for human-readable code generation
-    private static final List<String> ADJECTIVES = List.of(
-        "blue", "green", "silver", "golden", "quiet", "swift", "bright",
-        "calm", "clear", "cool", "deep", "fair", "free", "fresh", "gentle",
-        "glad", "grand", "kind", "light", "mild", "neat", "pure", "safe",
-        "soft", "warm", "wise", "bold", "brave", "still", "true"
-    );
+  // Word lists for human-readable code generation
+  private static final List<String> ADJECTIVES = List.of(
+      "blue", "green", "silver", "golden", "quiet", "swift", "bright",
+      "calm", "clear", "cool", "deep", "fair", "free", "fresh", "gentle",
+      "glad", "grand", "kind", "light", "mild", "neat", "pure", "safe",
+      "soft", "warm", "wise", "bold", "brave", "still", "true"
+  );
 
-    private static final List<String> NOUNS = List.of(
-        "river", "mountain", "forest", "valley", "ocean", "meadow", "cloud",
-        "stone", "wind", "shore", "field", "grove", "lake", "path", "peak",
-        "plain", "ridge", "brook", "creek", "dune", "fern", "glen", "hill",
-        "isle", "knoll", "marsh", "moor", "pond", "reef", "spring"
-    );
+  private static final List<String> NOUNS = List.of(
+      "river", "mountain", "forest", "valley", "ocean", "meadow", "cloud",
+      "stone", "wind", "shore", "field", "grove", "lake", "path", "peak",
+      "plain", "ridge", "brook", "creek", "dune", "fern", "glen", "hill",
+      "isle", "knoll", "marsh", "moor", "pond", "reef", "spring"
+  );
 
-    /**
-     * Registers a new anonymous user with a generated human-readable code and hashed PIN.
-     * Retries code generation if a collision occurs (extremely rare).
-     */
-    @Transactional
-    public AuthDto.RegisterResponse register(String pin) {
-        String userCode = generateUniqueCode();
-        String pinHash  = passwordEncoder.encode(pin);
+  /**
+   * Registers a new anonymous user with a generated human-readable code and hashed PIN.
+   * Retries code generation if a collision occurs (extremely rare).
+   */
+  @Transactional
+  public AuthDto.RegisterResponse register(String pin, String requestedUsername) {
+    String userCode;
+    if (requestedUsername != null && !requestedUsername.isBlank()) {
+      // Validate: max 20 chars, lowercase letters/digits/dash only
+      String cleaned = requestedUsername.trim().toLowerCase();
+      if (!cleaned.matches("^[a-z0-9-]{1,20}$")) {
+        throw new IllegalArgumentException("Invalid username format");
+      }
+      if (repository.findByUserCode(cleaned).isPresent()) {
+        throw new IllegalArgumentException("Username already taken");
+      }
+      userCode = cleaned;
+    } else {
+      userCode = generateUniqueCode();
+    }
+    String pinHash = passwordEncoder.encode(pin);
 
-        AnonymousUser user = new AnonymousUser();
-        user.setUserCode(userCode);
-        user.setPinHash(pinHash);
-        repository.save(user);
+    AnonymousUser user = new AnonymousUser();
+    user.setUserCode(userCode);
+    user.setPinHash(pinHash);
+    repository.save(user);
 
-        log.info("New anonymous user registered: {}", userCode);
+    log.info("New anonymous user registered: {}", userCode);
 
-        AuthDto.RegisterResponse response = new AuthDto.RegisterResponse();
-        response.setUserCode(userCode);
-        response.setMessage(
-            "Save your code: " + userCode + ". " +
+    AuthDto.RegisterResponse response = new AuthDto.RegisterResponse();
+    response.setUserCode(userCode);
+    response.setMessage(
+        "Save your code: " + userCode + ". " +
             "You will need it together with your PIN to access your data from another device."
-        );
-        return response;
-    }
+    );
+    return response;
+  }
 
-    /**
-     * Verifies a user code + PIN combination.
-     * Returns true only if the code exists and the PIN matches the stored bcrypt hash.
-     */
-    @Transactional(readOnly = true)
-    public boolean verify(String userCode, String pin) {
-        return repository.findByUserCode(userCode)
-                .map(user -> passwordEncoder.matches(pin, user.getPinHash()))
-                .orElse(false);
-    }
+  /**
+   * Verifies a user code + PIN combination.
+   * Returns true only if the code exists and the PIN matches the stored bcrypt hash.
+   */
+  @Transactional(readOnly = true)
+  public boolean verify(String userCode, String pin) {
+    return repository.findByUserCode(userCode)
+        .map(user -> passwordEncoder.matches(pin, user.getPinHash()))
+        .orElse(false);
+  }
 
-    /**
-     * Generates a unique human-readable code in the format: adjective-noun-number.
-     * Example: "blue-river-42"
-     * Retries up to 10 times to avoid collisions.
-     */
-    private String generateUniqueCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String adj    = ADJECTIVES.get(random.nextInt(ADJECTIVES.size()));
-            String noun   = NOUNS.get(random.nextInt(NOUNS.size()));
-            int    number = random.nextInt(90) + 10; // 10–99
-            String code   = adj + "-" + noun + "-" + number;
+  /**
+   * Generates a unique human-readable code in the format: adjective-noun-number.
+   * Example: "blue-river-42"
+   * Retries up to 10 times to avoid collisions.
+   */
+  private String generateUniqueCode() {
+    for (int attempt = 0; attempt < 10; attempt++) {
+      String adj = ADJECTIVES.get(random.nextInt(ADJECTIVES.size()));
+      String noun = NOUNS.get(random.nextInt(NOUNS.size()));
+      int number = random.nextInt(90) + 10; // 10–99
+      String code = adj + "-" + noun + "-" + number;
 
-            if (!repository.existsByUserCode(code)) {
-                return code;
-            }
-        }
-        // Fallback — append extra random digits to guarantee uniqueness
-        return ADJECTIVES.get(random.nextInt(ADJECTIVES.size()))
-             + "-" + NOUNS.get(random.nextInt(NOUNS.size()))
-             + "-" + (random.nextInt(9000) + 1000);
+      if (!repository.existsByUserCode(code)) {
+        return code;
+      }
     }
+    // Fallback — append extra random digits to guarantee uniqueness
+    return ADJECTIVES.get(random.nextInt(ADJECTIVES.size()))
+        + "-" + NOUNS.get(random.nextInt(NOUNS.size()))
+        + "-" + (random.nextInt(9000) + 1000);
+  }
 }
