@@ -1,4 +1,4 @@
-package com.safepoint.api.dto;
+package com.safepoint.api.model.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -13,11 +13,14 @@ public class AuthDto {
   @Data
   @Schema(description = "Request to register a new anonymous user")
   public static class RegisterRequest {
+
+    @Schema(description = "Requested username (optional). If blank, a username is generated automatically.",
+        example = "pure-path-79")
     private String username;
 
     @NotBlank
-    @Pattern(regexp = "\\d{4,6}", message = "PIN must be 4-6 digits")
-    @Schema(description = "User PIN — 4 to 6 digits", example = "1234")
+    @Pattern(regexp = "\\d{4}", message = "PIN must be exactly 4 digits")
+    @Schema(description = "User PIN — exactly 4 digits", example = "1234")
     private String pin;
   }
 
@@ -25,10 +28,10 @@ public class AuthDto {
   @Schema(description = "Response after successful registration")
   public static class RegisterResponse {
 
-    @Schema(description = "Generated human-readable user code", example = "blue-river-42")
-    private String userCode;
+    @Schema(description = "The user's username", example = "pure-path-79")
+    private String username;
 
-    @Schema(description = "Save this code — you will need it to access your data from another device")
+    @Schema(description = "Save your username and PIN — you will need them to access your data from another device")
     private String message;
   }
 
@@ -37,11 +40,11 @@ public class AuthDto {
   public static class VerifyRequest {
 
     @NotBlank
-    @Schema(description = "Your user code", example = "blue-river-42")
-    private String userCode;
+    @Schema(description = "Your username", example = "pure-path-79")
+    private String username;
 
     @NotBlank
-    @Pattern(regexp = "\\d{4,6}", message = "PIN must be 4-6 digits")
+    @Pattern(regexp = "\\d{4}", message = "PIN must be exactly 4 digits")
     @Schema(description = "Your PIN", example = "1234")
     private String pin;
   }
@@ -52,5 +55,18 @@ public class AuthDto {
 
     @Schema(description = "Whether the credentials are valid")
     private boolean valid;
+  }
+
+  @Data
+  @Schema(description = "Request to delete an anonymous user account")
+  public static class DeleteRequest {
+
+    @NotBlank
+    @Schema(description = "Your username", example = "pure-path-79")
+    private String username;
+
+    @NotBlank
+    @Schema(description = "Your PIN for confirmation", example = "1234")
+    private String pin;
   }
 }

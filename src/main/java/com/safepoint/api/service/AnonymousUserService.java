@@ -1,6 +1,6 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.dto.AuthDto;
+import com.safepoint.api.model.dto.AuthDto;
 import com.safepoint.api.model.entity.AnonymousUser;
 import com.safepoint.api.repository.AnonymousUserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +21,7 @@ public class AnonymousUserService {
   private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
   private final SecureRandom random = new SecureRandom();
 
-  // Word lists for human-readable code generation
+  // Word lists for human-readable username generation
   private static final List<String> ADJECTIVES = List.of(
       "blue", "green", "silver", "golden", "quiet", "swift", "bright",
       "calm", "clear", "cool", "deep", "fair", "free", "fresh", "gentle",
@@ -37,71 +37,82 @@ public class AnonymousUserService {
   );
 
   /**
-   * Registers a new anonymous user with a generated human-readable code and hashed PIN.
-   * Retries code generation if a collision occurs (extremely rare).
+   * Registers a new anonymous user with a human-readable username and hashed PIN.
+   * If the caller provides a username, validates and uses it.
+   * Otherwise, generates a unique username in adjective-noun-number format.
    */
   @Transactional
   public AuthDto.RegisterResponse register(String pin, String requestedUsername) {
-    String userCode;
+    String username;
     if (requestedUsername != null && !requestedUsername.isBlank()) {
-      // Validate: max 20 chars, lowercase letters/digits/dash only
       String cleaned = requestedUsername.trim().toLowerCase();
       if (!cleaned.matches("^[a-z0-9-]{1,20}$")) {
         throw new IllegalArgumentException("Invalid username format");
       }
-      if (repository.findByUserCode(cleaned).isPresent()) {
+      if (repository.findByUsername(cleaned).isPresent()) {
         throw new IllegalArgumentException("Username already taken");
       }
-      userCode = cleaned;
+      username = cleaned;
     } else {
-      userCode = generateUniqueCode();
+      username = generateUniqueUsername();
     }
-    String pinHash = passwordEncoder.encode(pin);
 
     AnonymousUser user = new AnonymousUser();
-    user.setUserCode(userCode);
-    user.setPinHash(pinHash);
+    user.setUsername(username);
+    user.setPinHash(passwordEncoder.encode(pin));
     repository.save(user);
 
-    log.info("New anonymous user registered: {}", userCode);
+    log.info("New anonymous user registered: {}", username);
 
     AuthDto.RegisterResponse response = new AuthDto.RegisterResponse();
-    response.setUserCode(userCode);
+    response.setUsername(username);
     response.setMessage(
-        "Save your code: " + userCode + ". " +
+        "Save your username: " + username + ". " +
             "You will need it together with your PIN to access your data from another device."
     );
     return response;
   }
 
   /**
-   * Verifies a user code + PIN combination.
-   * Returns true only if the code exists and the PIN matches the stored bcrypt hash.
+   * Verifies a username + PIN combination.
+   * Returns true only if the username exists and the PIN matches the stored hash.
    */
   @Transactional(readOnly = true)
-  public boolean verify(String userCode, String pin) {
-    return repository.findByUserCode(userCode)
+  public boolean verify(String username, String pin) {
+    return repository.findByUsername(username)
         .map(user -> passwordEncoder.matches(pin, user.getPinHash()))
         .orElse(false);
   }
 
   /**
-   * Generates a unique human-readable code in the format: adjective-noun-number.
-   * Example: "blue-river-42"
-   * Retries up to 10 times to avoid collisions.
+   * Deletes an anonymous user after verifying their PIN.
    */
-  private String generateUniqueCode() {
+  @Transactional
+  public void delete(String username, String pin) {
+    AnonymousUser user = repository.findByUsername(username)
+        .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    if (!passwordEncoder.matches(pin, user.getPinHash())) {
+      throw new IllegalArgumentException("Invalid PIN");
+    }
+    repository.delete(user);
+    log.info("Anonymous user deleted: {}", username);
+  }
+
+  /**
+   * Generates a unique username in the format: adjective-noun-number.
+   * Example: "blue-river-42". Retries up to 10 times to avoid collisions.
+   */
+  private String generateUniqueUsername() {
     for (int attempt = 0; attempt < 10; attempt++) {
       String adj = ADJECTIVES.get(random.nextInt(ADJECTIVES.size()));
       String noun = NOUNS.get(random.nextInt(NOUNS.size()));
       int number = random.nextInt(90) + 10; // 10–99
-      String code = adj + "-" + noun + "-" + number;
-
-      if (!repository.existsByUserCode(code)) {
-        return code;
+      String username = adj + "-" + noun + "-" + number;
+      if (!repository.existsByUsername(username)) {
+        return username;
       }
     }
-    // Fallback — append extra random digits to guarantee uniqueness
+    // Fallback — 4-digit suffix guarantees uniqueness
     return ADJECTIVES.get(random.nextInt(ADJECTIVES.size()))
         + "-" + NOUNS.get(random.nextInt(NOUNS.size()))
         + "-" + (random.nextInt(9000) + 1000);

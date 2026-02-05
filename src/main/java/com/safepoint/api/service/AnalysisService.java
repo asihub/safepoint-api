@@ -7,10 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -20,67 +17,62 @@ public class AnalysisService {
   private final MlService mlService;
   private final TranslationService translationService;
 
-  // PHQ-9 severity thresholds
+  // PHQ-9 severity thresholds (validated clinical cutoffs)
   private static final int PHQ9_MODERATE = 10;
   private static final int PHQ9_SEVERE = 20;
 
-  // GAD-7 severity thresholds
+  // GAD-7 severity thresholds (validated clinical cutoffs)
   private static final int GAD7_MODERATE = 10;
   private static final int GAD7_SEVERE = 15;
 
-  // ML confidence threshold for High risk override
+  // ML confidence threshold for HIGH risk upgrade
   private static final double ML_HIGH_OVERRIDE_THRESHOLD = 0.35;
-
-  // Concern tags that force minimum HIGH risk
-  private static final Set<String> HIGH_RISK_CONCERNS = Set.of("Suicidal thoughts", "Thoughts of self-harm");
-
-  // Concern tags that force minimum MEDIUM risk
-  private static final Set<String> MEDIUM_RISK_CONCERNS = Set.of("Feeling hopeless", "Feeling worthless", "Feeling like a burden");
 
   /**
    * Orchestrates the full risk assessment pipeline:
-   * 1. Score questionnaires (PHQ-9, GAD-7)
-   * 2. Score concerns (hard overrides for high-risk tags)
-   * 3. Translate free text if non-English
-   * 4. Build ML input (concerns + free text)
-   * 5. Call ML service
-   * 6. Combine all signals → final risk
-   * 7. Build response
+   * 1. Score questionnaires (PHQ-9, GAD-7) → validated clinical risk
+   * 2. Run ML on free text if provided → AI risk signal
+   * 3. Combine signals → final risk level
    */
   public AnalysisResponse analyze(AnalysisRequest request) {
 
-    // Step 1 — Questionnaire scoring
+    // Step 1 — Questionnaire scoring (PHQ-9 + GAD-7)
     String questionnaireRisk = scoreQuestionnaires(request.getQuestionnaireScores());
 
-    // Step 2 — Concern-based override
-    String concernOverride = scoreConcerns(request.getConcerns());
-
-    // Step 3 & 4 — Build ML input and optionally translate
+    // Step 2 — ML analysis on free text only (skipped if no text provided)
     MlAnalysisResult mlResult = null;
-    String mlInput = buildMlInput(request.getFreeText(), request.getConcerns());
-    if (!mlInput.isBlank()) {
-      // Translate to English if UI language is non-English
+    String freeText = request.getFreeText();
+    if (freeText != null && !freeText.isBlank()) {
+      String mlInput = freeText.trim();
       String lang = request.getLang();
       if (lang != null && !lang.equalsIgnoreCase("en")) {
         mlInput = translationService.translateToEnglish(mlInput, lang);
         log.info("Translated ML input from {} to en", lang);
       }
-      // Step 5 — ML classification
       mlResult = mlService.analyze(mlInput);
     }
 
-    // Step 6 — Combine all signals
-    String finalRisk = combineRiskLevels(questionnaireRisk, concernOverride, mlResult, request.isProxyMode());
+    // Step 3 — Combine questionnaire + ML signals
+    String finalRisk = combineRiskLevels(questionnaireRisk, mlResult, request.isProxyMode());
 
-    // Step 7 — Build response
-    boolean show988 = "HIGH".equals(finalRisk);
-    String explanation = buildExplanation(finalRisk, mlResult, request.getConcerns());
-
-    return AnalysisResponse.builder().riskLevel(finalRisk).confidence(computeOverallConfidence(questionnaireRisk, mlResult)).phq9Score(getScore(request.getQuestionnaireScores(), "phq9")).gad7Score(getScore(request.getQuestionnaireScores(), "gad7")).aiAnalysis(mlResult).show988(show988).explanation(explanation).build();
+    return AnalysisResponse.builder()
+        .riskLevel(finalRisk)
+        .confidence(computeOverallConfidence(questionnaireRisk, mlResult))
+        .phq9Score(getScore(request.getQuestionnaireScores(), "phq9"))
+        .gad7Score(getScore(request.getQuestionnaireScores(), "gad7"))
+        .aiAnalysis(mlResult)
+        .show988("HIGH".equals(finalRisk))
+        .explanation(buildExplanation(finalRisk, mlResult))
+        .build();
   }
 
   // ── Scoring ───────────────────────────────────────────────────────────────
 
+  /**
+   * Scores PHQ-9 and GAD-7 against validated clinical cutoffs.
+   * PHQ-9: 0-4 minimal, 5-9 mild, 10-19 moderate, 20-27 severe
+   * GAD-7: 0-4 minimal, 5-9 mild, 10-14 moderate, 15-21 severe
+   */
   private String scoreQuestionnaires(Map<String, Integer> scores) {
     if (scores == null || scores.isEmpty()) return "LOW";
     int phq9 = scores.getOrDefault("phq9", 0);
@@ -91,64 +83,28 @@ public class AnalysisService {
   }
 
   /**
-   * Returns minimum risk forced by concern tags.
-   * HIGH_RISK_CONCERNS → HIGH, MEDIUM_RISK_CONCERNS → MEDIUM, else LOW.
+   * Combines questionnaire risk with ML signal.
+   * Final risk = max(questionnaireRisk, mlRisk).
+   * ML can upgrade MEDIUM → HIGH if plan_or_action signal detected with high confidence.
    */
-  private String scoreConcerns(List<String> concerns) {
-    if (concerns == null || concerns.isEmpty()) return "LOW";
-    for (String c : concerns) {
-      if (HIGH_RISK_CONCERNS.contains(c)) return "HIGH";
-    }
-    for (String c : concerns) {
-      if (MEDIUM_RISK_CONCERNS.contains(c)) return "MEDIUM";
-    }
-    return "LOW";
-  }
-
-  /**
-   * Combines questionnaire risk, concern override, and ML risk.
-   * Final risk = max of all three signals.
-   */
-  private String combineRiskLevels(String questionnaireRisk, String concernOverride, MlAnalysisResult mlResult, boolean proxyMode) {
-
-    String base = higherRisk(questionnaireRisk, concernOverride);
-
-    if (mlResult == null) return base;
+  private String combineRiskLevels(String questionnaireRisk,
+                                   MlAnalysisResult mlResult,
+                                   boolean proxyMode) {
+    if (mlResult == null) return questionnaireRisk;
 
     String mlRisk = mlResult.getRiskLevel();
 
-    // Upgrade MEDIUM → HIGH if plan_or_action signal present with high confidence
-    boolean planSignal = mlResult.getSignals() != null && mlResult.getSignals().contains("plan_or_action");
-    if ("MEDIUM".equals(mlRisk) && mlResult.getScores().getHigh() >= ML_HIGH_OVERRIDE_THRESHOLD && planSignal && !proxyMode) {
+    // Upgrade MEDIUM → HIGH if plan_or_action detected with high confidence
+    boolean planSignal = mlResult.getSignals() != null &&
+        mlResult.getSignals().contains("plan_or_action");
+    if ("MEDIUM".equals(mlRisk) &&
+        mlResult.getScores().getHigh() >= ML_HIGH_OVERRIDE_THRESHOLD &&
+        planSignal && !proxyMode) {
       mlRisk = "HIGH";
-      log.info("Risk upgraded to HIGH: plan_or_action signal with high confidence score");
+      log.info("Risk upgraded to HIGH: plan_or_action signal with high confidence");
     }
 
-    return higherRisk(base, mlRisk);
-  }
-
-  // ── ML input ──────────────────────────────────────────────────────────────
-
-  /**
-   * Builds ML input by prepending concern tags to free text.
-   * Example: "Concerns: feeling hopeless, sleep problems. I have been struggling..."
-   */
-  private String buildMlInput(String freeText, List<String> concerns) {
-    boolean hasConcerns = concerns != null && !concerns.isEmpty();
-    boolean hasText = freeText != null && !freeText.isBlank();
-
-    if (!hasConcerns && !hasText) return "";
-
-    StringBuilder sb = new StringBuilder();
-    if (hasConcerns) {
-      String tags = concerns.stream().map(String::toLowerCase).collect(Collectors.joining(", "));
-      sb.append("Concerns: ").append(tags).append(".");
-    }
-    if (hasText) {
-      if (sb.length() > 0) sb.append(" ");
-      sb.append(freeText.trim());
-    }
-    return sb.toString();
+    return higherRisk(questionnaireRisk, mlRisk);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -174,16 +130,14 @@ public class AnalysisService {
     };
   }
 
-  private String buildExplanation(String finalRisk, MlAnalysisResult mlResult, List<String> concerns) {
+  private String buildExplanation(String finalRisk, MlAnalysisResult mlResult) {
     StringBuilder sb = new StringBuilder();
     sb.append("Your risk level has been assessed as ").append(finalRisk).append(". ");
 
-    if (concerns != null && !concerns.isEmpty()) {
-      sb.append("Reported concerns: ").append(String.join(", ", concerns)).append(". ");
-    }
-
     if (mlResult != null && mlResult.getSignals() != null && !mlResult.getSignals().isEmpty()) {
-      sb.append("AI detected signals: ").append(String.join(", ", mlResult.getSignals()).replace("_", " ")).append(". ");
+      sb.append("AI detected signals: ")
+          .append(String.join(", ", mlResult.getSignals()).replace("_", " "))
+          .append(". ");
     }
 
     sb.append(switch (finalRisk) {

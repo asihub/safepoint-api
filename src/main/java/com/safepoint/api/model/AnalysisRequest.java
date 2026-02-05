@@ -28,9 +28,6 @@ public class AnalysisRequest {
       allowableValues = {"en", "es"}, example = "es")
   private String lang = "en";
 
-  @Schema(description = "Selected concern tags from the UI (e.g. 'Feeling hopeless', 'Suicidal thoughts')")
-  private java.util.List<String> concerns = new java.util.ArrayList<>();
-
   @Schema(description = "User latitude for resource map")
   private Double latitude;
 

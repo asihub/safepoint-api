@@ -9,7 +9,7 @@ import java.util.Optional;
 @Repository
 public interface AnonymousUserRepository extends JpaRepository<AnonymousUser, Long> {
 
-    Optional<AnonymousUser> findByUserCode(String userCode);
+  Optional<AnonymousUser> findByUsername(String username);
 
-    boolean existsByUserCode(String userCode);
+  boolean existsByUsername(String username);
 }

@@ -19,68 +19,68 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SafetyPlanService {
 
-    private final SafetyPlanRepository repository;
+  private final SafetyPlanRepository repository;
 
-    /**
-     * Saves or updates a safety plan for the given user.
-     * The userCode + PIN are hashed — never stored in plain text.
-     */
-    @Transactional
-    public SafetyPlan save(SafetyPlanDto dto) {
-        String hash = computeHash(dto.getUserCode(), dto.getPin());
+  /**
+   * Saves or updates a safety plan for the given user.
+   * The username and PIN are never stored — only their SHA-256 hash is used as identifier.
+   */
+  @Transactional
+  public SafetyPlan save(SafetyPlanDto dto) {
+    String hash = computeHash(dto.getUserCode(), dto.getPin());
 
-        SafetyPlan plan = repository.findByUserHash(hash)
-                .orElse(new SafetyPlan());
+    SafetyPlan plan = repository.findByUserHash(hash)
+        .orElse(new SafetyPlan());
 
-        plan.setUserHash(hash);
-        plan.setWarningSigns(dto.getWarningSigns());
-        plan.setCopingStrategies(dto.getCopingStrategies());
-        plan.setSocialDistractions(dto.getSocialDistractions());
-        plan.setTrustedContacts(dto.getTrustedContacts());
-        plan.setProfessionalResources(dto.getProfessionalResources());
-        plan.setEnvironmentSafety(dto.getEnvironmentSafety());
+    plan.setUserHash(hash);
+    plan.setWarningSigns(dto.getWarningSigns());
+    plan.setCopingStrategies(dto.getCopingStrategies());
+    plan.setSocialDistractions(dto.getSocialDistractions());
+    plan.setTrustedContacts(dto.getTrustedContacts());
+    plan.setProfessionalResources(dto.getProfessionalResources());
+    plan.setEnvironmentSafety(dto.getEnvironmentSafety());
 
-        SafetyPlan saved = repository.save(plan);
-        log.info("Safety plan saved for hash prefix: {}", hash.substring(0, 8));
-        return saved;
+    SafetyPlan saved = repository.save(plan);
+    log.info("Safety plan saved for hash prefix: {}", hash.substring(0, 8));
+    return saved;
+  }
+
+  /**
+   * Retrieves a safety plan by username and PIN.
+   * Returns empty if not found or credentials are incorrect.
+   */
+  @Transactional(readOnly = true)
+  public Optional<SafetyPlan> get(String username, String pin) {
+    String hash = computeHash(username, pin);
+    return repository.findByUserHash(hash);
+  }
+
+  /**
+   * Deletes a safety plan. Used when the user requests data deletion.
+   */
+  @Transactional
+  public boolean delete(String username, String pin) {
+    String hash = computeHash(username, pin);
+    if (repository.existsByUserHash(hash)) {
+      repository.deleteByUserHash(hash);
+      log.info("Safety plan deleted for hash prefix: {}", hash.substring(0, 8));
+      return true;
     }
+    return false;
+  }
 
-    /**
-     * Retrieves a safety plan by user code and PIN.
-     * Returns empty if not found or credentials are incorrect.
-     */
-    @Transactional(readOnly = true)
-    public Optional<SafetyPlan> get(String userCode, String pin) {
-        String hash = computeHash(userCode, pin);
-        return repository.findByUserHash(hash);
+  /**
+   * Computes a SHA-256 hash of username + ":" + pin.
+   * This is the only identifier stored — no PII, no reversible data.
+   */
+  private String computeHash(String username, String pin) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      String input = username.trim().toLowerCase() + ":" + pin.trim();
+      byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hashBytes);
+    } catch (NoSuchAlgorithmException e) {
+      throw new RuntimeException("SHA-256 not available", e);
     }
-
-    /**
-     * Deletes a safety plan. Used when user requests data deletion.
-     */
-    @Transactional
-    public boolean delete(String userCode, String pin) {
-        String hash = computeHash(userCode, pin);
-        if (repository.existsByUserHash(hash)) {
-            repository.deleteByUserHash(hash);
-            log.info("Safety plan deleted for hash prefix: {}", hash.substring(0, 8));
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Computes a SHA-256 hash of userCode + ":" + pin.
-     * This is the only identifier stored — no PII, no reversible data.
-     */
-    private String computeHash(String userCode, String pin) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            String input = userCode.trim().toLowerCase() + ":" + pin.trim();
-            byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hashBytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
+  }
 }
