@@ -19,14 +19,11 @@ public class AnalysisService {
 
   // PHQ-9 severity thresholds (validated clinical cutoffs)
   private static final int PHQ9_MODERATE = 10;
-  private static final int PHQ9_SEVERE = 20;
+  private static final int PHQ9_SEVERE   = 20;
 
   // GAD-7 severity thresholds (validated clinical cutoffs)
   private static final int GAD7_MODERATE = 10;
-  private static final int GAD7_SEVERE = 15;
-
-  // ML confidence threshold for HIGH risk upgrade
-  private static final double ML_HIGH_OVERRIDE_THRESHOLD = 0.35;
+  private static final int GAD7_SEVERE   = 15;
 
   /**
    * Orchestrates the full risk assessment pipeline:
@@ -53,7 +50,7 @@ public class AnalysisService {
     }
 
     // Step 3 — Combine questionnaire + ML signals
-    String finalRisk = combineRiskLevels(questionnaireRisk, mlResult, request.isProxyMode());
+    String finalRisk = combineRiskLevels(questionnaireRisk, mlResult);
 
     return AnalysisResponse.builder()
         .riskLevel(finalRisk)
@@ -77,7 +74,7 @@ public class AnalysisService {
     if (scores == null || scores.isEmpty()) return "LOW";
     int phq9 = scores.getOrDefault("phq9", 0);
     int gad7 = scores.getOrDefault("gad7", 0);
-    if (phq9 >= PHQ9_SEVERE || gad7 >= GAD7_SEVERE) return "HIGH";
+    if (phq9 >= PHQ9_SEVERE || gad7 >= GAD7_SEVERE)     return "HIGH";
     if (phq9 >= PHQ9_MODERATE || gad7 >= GAD7_MODERATE) return "MEDIUM";
     return "LOW";
   }
@@ -85,26 +82,24 @@ public class AnalysisService {
   /**
    * Combines questionnaire risk with ML signal.
    * Final risk = max(questionnaireRisk, mlRisk).
-   * ML can upgrade MEDIUM → HIGH if plan_or_action signal detected with high confidence.
+   * Final risk = max(questionnaireRisk, mlRisk).
    */
+  // Minimum ML confidence to include ML signal in final risk
+  private static final double ML_MIN_CONFIDENCE = 0.6;
+
   private String combineRiskLevels(String questionnaireRisk,
-                                   MlAnalysisResult mlResult,
-                                   boolean proxyMode) {
+                                   MlAnalysisResult mlResult) {
     if (mlResult == null) return questionnaireRisk;
 
-    String mlRisk = mlResult.getRiskLevel();
-
-    // Upgrade MEDIUM → HIGH if plan_or_action detected with high confidence
-    boolean planSignal = mlResult.getSignals() != null &&
-        mlResult.getSignals().contains("plan_or_action");
-    if ("MEDIUM".equals(mlRisk) &&
-        mlResult.getScores().getHigh() >= ML_HIGH_OVERRIDE_THRESHOLD &&
-        planSignal && !proxyMode) {
-      mlRisk = "HIGH";
-      log.info("Risk upgraded to HIGH: plan_or_action signal with high confidence");
+    // Ignore ML if confidence is too low — unreliable signal
+    if (mlResult.getConfidence() < ML_MIN_CONFIDENCE) {
+      log.info("ML confidence {} below threshold {} — ignoring ML signal",
+          mlResult.getConfidence(), ML_MIN_CONFIDENCE);
+      return questionnaireRisk;
     }
 
-    return higherRisk(questionnaireRisk, mlRisk);
+    // ML is confident enough — take the higher of the two signals
+    return higherRisk(questionnaireRisk, mlResult.getRiskLevel());
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -115,18 +110,18 @@ public class AnalysisService {
 
   private int riskToInt(String risk) {
     return switch (risk != null ? risk : "LOW") {
-      case "HIGH" -> 2;
+      case "HIGH"   -> 2;
       case "MEDIUM" -> 1;
-      default -> 0;
+      default       -> 0;
     };
   }
 
   private double computeOverallConfidence(String questionnaireRisk, MlAnalysisResult mlResult) {
     if (mlResult != null) return mlResult.getConfidence();
     return switch (questionnaireRisk) {
-      case "HIGH" -> 0.85;
+      case "HIGH"   -> 0.85;
       case "MEDIUM" -> 0.75;
-      default -> 0.90;
+      default       -> 0.90;
     };
   }
 
@@ -141,9 +136,9 @@ public class AnalysisService {
     }
 
     sb.append(switch (finalRisk) {
-      case "HIGH" -> "We strongly recommend reaching out to a crisis service immediately.";
+      case "HIGH"   -> "We strongly recommend reaching out to a crisis service immediately.";
       case "MEDIUM" -> "We recommend speaking with a mental health professional soon.";
-      default -> "Continue monitoring how you feel and reach out if things change.";
+      default       -> "Continue monitoring how you feel and reach out if things change.";
     });
 
     return sb.toString();
