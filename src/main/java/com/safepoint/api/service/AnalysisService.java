@@ -40,6 +40,17 @@ public class AnalysisService {
     MlAnalysisResult mlResult = null;
     String freeText = request.getFreeText();
     if (freeText != null && !freeText.isBlank()) {
+      String[] words = freeText.trim().split("\\s+");
+      long uniqueWords = java.util.Arrays.stream(words)
+          .map(String::toLowerCase)
+          .distinct()
+          .count();
+      if (words.length < 15 || uniqueWords < 8) {
+        log.info("Skipping ML: {} words, {} unique (min 15 words, 8 unique required)", words.length, uniqueWords);
+        freeText = null;
+      }
+    }
+    if (freeText != null) {
       String mlInput = freeText.trim();
       String lang = request.getLang();
       if (lang != null && !lang.equalsIgnoreCase("en")) {
