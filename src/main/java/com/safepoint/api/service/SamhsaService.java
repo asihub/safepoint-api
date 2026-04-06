@@ -2,9 +2,11 @@ package com.safepoint.api.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Collections;
 import java.util.List;
@@ -16,13 +18,8 @@ public class SamhsaService {
 
   private final RestTemplate restTemplate;
 
-  private static final String SAMHSA_URL =
-      "https://findtreatment.gov/locator/exportsAsJson/v2";
-
-  // Default radius — 16 km (~10 miles)
+  private static final String SAMHSA_URL = "https://findtreatment.gov/locator/listing";
   private static final double DEFAULT_RADIUS_METERS = 16093.0;
-
-  // Max allowed radius to prevent abuse — 100 miles
   private static final double MAX_RADIUS_METERS = 160934.0;
 
   public SamhsaService(@Qualifier("samhsaRestTemplate") RestTemplate restTemplate) {
@@ -31,63 +28,52 @@ public class SamhsaService {
 
   /**
    * Finds mental health treatment facilities near a given location.
-   *
-   * @param latitude     user latitude
-   * @param longitude    user longitude
-   * @param insurance    insurance type filter (MEDICAID, MEDICARE, PRIVATE, NONE, UNKNOWN)
-   * @param limit        max number of results to return
-   * @param radiusMeters search radius in meters (SAMHSA limitValue)
+   * Uses POST /locator/listing with form-encoded payload.
    */
   public List<Map<String, Object>> findFacilities(
       double latitude,
       double longitude,
       String insurance,
-      int limit,
+      int    limit,
       double radiusMeters,
       String serviceType) {
 
-    // Clamp radius to safe range
     double radius = Math.min(Math.max(radiusMeters, 1000), MAX_RADIUS_METERS);
 
-    UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(SAMHSA_URL)
-        .queryParam("sAddr", latitude + "," + longitude)
-        .queryParam("limitType", 2)              // 2 = distance-based
-        .queryParam("limitValue", radius)
-        .queryParam("pageSize", limit)
-        .queryParam("page", 1)
-        .queryParam("sort", 0);             // 0 = sort by distance
+    // SA = Substance Abuse, MH = Mental Health, default MH
+    String sType = "sa".equalsIgnoreCase(serviceType) ? "SA" : "MH";
 
-    // Service type: mh = mental health, sa = substance abuse, both = both
-    if (serviceType != null && !serviceType.isBlank()) {
-      builder.queryParam("sType", serviceType);
-    }
+    // Build form-encoded body
+    MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+    body.add("sType",      sType);
+    body.add("sAddr",      latitude + "," + longitude);
+    body.add("limitType",  "2");   // 2 = distance-based
+    body.add("limitValue", String.valueOf((int) radius));
+    body.add("pageSize",   String.valueOf(limit));
+    body.add("page",       "1");
+    body.add("sort",       "0");   // 0 = sort by distance
 
-    // Insurance type filter
     String filterPay = mapInsuranceToFilter(insurance);
     if (filterPay != null) {
-      builder.queryParam("filterPay", filterPay);
+      body.add("filterPay", filterPay);
     }
 
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+    HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(body, headers);
+
     try {
-      String url = builder.toUriString();
-      log.info("SAMHSA query: radius={}m insurance={} sType={}", (int) radius, insurance, serviceType);
+      log.info("SAMHSA POST /locator/listing: sType={} radius={}m insurance={}", sType, (int) radius, insurance);
+
+      ResponseEntity<Map> response = restTemplate.postForEntity(SAMHSA_URL, request, Map.class);
+
+      if (response.getBody() == null) return Collections.emptyList();
 
       @SuppressWarnings("unchecked")
-      Map<String, Object> response = restTemplate.getForObject(url, Map.class);
+      List<Map<String, Object>> rows = (List<Map<String, Object>>) response.getBody().get("rows");
 
-      if (response == null) return Collections.emptyList();
-
-      @SuppressWarnings("unchecked")
-      List<Map<String, Object>> rows = (List<Map<String, Object>>) response.get("rows");
-      if (rows == null) return Collections.emptyList();
-
-      // Client-side insurance filter — SAMHSA filterPay is unreliable
-      // Filter by PAY service entry in the services array
-      if (filterPay != null) {
-        rows = filterByInsurance(rows, filterPay);
-      }
-
-      return rows;
+      return rows != null ? rows : Collections.emptyList();
 
     } catch (Exception e) {
       log.error("SAMHSA API error: {}", e.getMessage());
@@ -95,43 +81,14 @@ public class SamhsaService {
     }
   }
 
-  /**
-   * Overload with default radius.
-   */
   public List<Map<String, Object>> findFacilities(
-      double latitude, double longitude, String insurance, int limit) {
-    return findFacilities(latitude, longitude, insurance, limit, DEFAULT_RADIUS_METERS, "mh");
+      double latitude, double longitude, String insurance, int limit, double radiusMeters) {
+    return findFacilities(latitude, longitude, insurance, limit, radiusMeters, "MH");
   }
 
-  /**
-   * Filters facilities by insurance type using the services array in the response.
-   * SAMHSA's filterPay parameter is unreliable so we filter client-side.
-   * PAY service entry contains human-readable payment types like "Medicaid", "Medicare", etc.
-   */
-  @SuppressWarnings("unchecked")
-  private List<Map<String, Object>> filterByInsurance(List<Map<String, Object>> rows, String filterPay) {
-    String keyword = switch (filterPay) {
-      case "MD" -> "medicaid";
-      case "MC" -> "medicare";
-      case "PI" -> "private health";
-      case "SF" -> "sliding fee";
-      default -> null;
-    };
-    if (keyword == null) return rows;
-
-    final String kw = keyword;
-    return rows.stream()
-        .filter(facility -> {
-          Object svcs = facility.get("services");
-          if (!(svcs instanceof List)) return false;
-          List<Map<String, Object>> services = (List<Map<String, Object>>) svcs;
-          return services.stream().anyMatch(s -> {
-            String f2 = (String) s.get("f2");
-            String f3 = (String) s.get("f3");
-            return "PAY".equals(f2) && f3 != null && f3.toLowerCase().contains(kw);
-          });
-        })
-        .collect(java.util.stream.Collectors.toList());
+  public List<Map<String, Object>> findFacilities(
+      double latitude, double longitude, String insurance, int limit) {
+    return findFacilities(latitude, longitude, insurance, limit, DEFAULT_RADIUS_METERS, "MH");
   }
 
   private String mapInsuranceToFilter(String insurance) {
@@ -139,9 +96,9 @@ public class SamhsaService {
     return switch (insurance.toUpperCase()) {
       case "MEDICAID" -> "MD";
       case "MEDICARE" -> "MC";
-      case "PRIVATE" -> "PI";
-      case "NONE" -> "SF"; // Sliding fee / no insurance
-      default -> null;
+      case "PRIVATE"  -> "PI";
+      case "NONE"     -> "SF";
+      default         -> null;
     };
   }
 }
