@@ -16,8 +16,7 @@ public class SafetyPlanDto {
   @Schema(description = "Anonymous username", example = "pure-path-79")
   private String userCode;
 
-  @NotBlank(message = "PIN is required")
-  @Schema(description = "User PIN (4-6 digits)", example = "1234")
+  @Schema(description = "User PIN (4-6 digits, optional if authenticated via session)", example = "1234")
   private String pin;
 
   @Schema(description = "Step 1: Personal warning signs that a crisis may be approaching",
