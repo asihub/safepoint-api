@@ -100,6 +100,48 @@ public class WellbeingResourceService {
     }
   }
 
+  /**
+   * Manually trigger excerpt refresh for all resources that have no excerpt.
+   * Skips resources that already have one (use the scheduled job for stale refresh).
+   */
+  @Transactional
+  public int refreshMissingExcerpts() {
+    List<WellbeingResource> missing = repository.findAllByOrderByCategoryAscTitleAsc()
+        .stream()
+        .filter(r -> r.getExcerpt() == null)
+        .toList();
+
+    int total = missing.size();
+    log.info("Refreshing missing excerpts for {} resources...", total);
+    int success = 0;
+
+    for (int i = 0; i < missing.size(); i++) {
+      WellbeingResource resource = missing.get(i);
+      log.info("[{}/{}] Processing: {}", i + 1, total, resource.getTitle());
+      try {
+        String excerpt = fetchExcerpt(resource.getUrl());
+        if (excerpt != null) {
+          resource.setExcerpt(excerpt);
+          resource.setExcerptUpdatedAt(LocalDateTime.now());
+          repository.save(resource);
+          success++;
+          log.info("[{}/{}] \u2713 Updated: {}", i + 1, total, resource.getTitle());
+        } else {
+          log.warn("[{}/{}] \u2717 No excerpt: {}", i + 1, total, resource.getTitle());
+        }
+        Thread.sleep(2000);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      } catch (Exception e) {
+        log.error("[{}/{}] \u2717 Failed: {} \u2014 {}", i + 1, total, resource.getTitle(), e.getMessage());
+      }
+    }
+
+    log.info("Missing excerpt refresh complete: {}/{} updated.", success, missing.size());
+    return success;
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────────
 
   /**
