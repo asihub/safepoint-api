@@ -19,7 +19,7 @@ spring:
 ml:
   service:
     url: ${ML_SERVICE_URL:http://127.0.0.1:8001}
-    timeout-ms: 60000
+    timeout-ms: 40000
 
 # SAMHSA Treatment Locator API
 samhsa:
