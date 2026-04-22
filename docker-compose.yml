@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: safepoint
+      POSTGRES_USER: ${DB_USER:-safepoint}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-safepoint}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_USER: ${DB_USER:-safepoint}
+      DB_PASSWORD: ${DB_PASSWORD:-safepoint}
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-http://localhost:8001}
+      SAMHSA_API_KEY: ${SAMHSA_API_KEY:-}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  pgdata:
