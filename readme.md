@@ -7,13 +7,14 @@
 | Component | Technology |
 |---|---|
 | Language | Java 21 |
-| Framework | Spring Boot 3.2 |
+| Framework | Spring Boot 4.0 |
 | ORM | Spring Data JPA / Hibernate |
 | Database | PostgreSQL 16 |
 | Security | Spring Security (stateless, BCrypt) |
 | HTTP Client | RestTemplate |
 | API Docs | SpringDoc OpenAPI 3 / Swagger UI |
 | Build | Maven |
+| Boilerplate | Lombok |
 
 ---
 
@@ -59,8 +60,10 @@ com.safepoint.api
 │   ├── AnalysisController        POST /api/v1/analysis
 │   ├── AuthController            POST /api/v1/auth/register · verify
 │   ├── SafetyPlanController      GET · POST · DELETE /api/v1/safety-plan
+│   ├── ProgressBackupController  GET · POST · DELETE · GET /exists /api/v1/progress-backup
 │   ├── WellbeingResourceController  GET /api/v1/wellbeing
-│   └── ResourceController        GET /api/v1/facilities
+│   ├── ResourceController        GET /api/v1/facilities
+│   └── HealthController          GET /health
 ├── service/              # Business logic
 │   ├── AnalysisService           Risk pipeline orchestration
 │   ├── MlService                 HTTP client for Python ML service
@@ -68,13 +71,15 @@ com.safepoint.api
 │   ├── SamhsaService             SAMHSA FindTreatment.gov proxy
 │   ├── SafetyPlanService         SHA-256 anonymous identity
 │   ├── AnonymousUserService      BCrypt PIN hashing, username generation
+│   ├── ProgressBackupService     Encrypted history blob storage
 │   └── WellbeingResourceService  BART excerpt refresh (@Scheduled weekly)
 ├── model/
 │   ├── entity/           # JPA entities (AnonymousUser, SafetyPlan, WellbeingResource)
 │   ├── AnalysisRequest   # Request DTO
 │   └── AnalysisResponse  # Response DTO with MlAnalysisResult
+├── entity/               # JPA entities (ProgressBackup)
 ├── repository/           # Spring Data JPA repositories
-├── dto/                  # Auth and SafetyPlan DTOs
+├── dto/                  # Auth, SafetyPlan, and ProgressBackup DTOs
 └── config/               # Security, RestTemplate beans
 ```
 
@@ -106,9 +111,22 @@ GET   /api/v1/wellbeing                      Get all resources with AI-generated
 POST  /api/v1/wellbeing/{id}/refresh-excerpt  Manually refresh excerpt for one resource
 ```
 
+### Progress Backup
+```
+POST   /api/v1/progress-backup          Save AES-256-GCM encrypted assessment history blob
+GET    /api/v1/progress-backup          Retrieve encrypted blob (decrypted client-side only)
+GET    /api/v1/progress-backup/exists   Check if a backup exists for a given user
+DELETE /api/v1/progress-backup          Delete backup
+```
+
 ### Facilities
 ```
 GET   /api/v1/facilities        SAMHSA treatment facility search (location + insurance filter)
+```
+
+### Health
+```
+GET   /health                   Liveness check — returns 200 OK
 ```
 
 Full interactive documentation available at `http://localhost:8080/swagger-ui.html` after startup.
@@ -123,7 +141,7 @@ SafePoint stores no personally identifiable information:
 - **PIN storage** — BCrypt hash only, never the raw PIN
 - **Safety plan linkage** — SHA-256(username + ":" + pin), not reversible
 - **Free text** — processed in memory by ML service, never logged or persisted
-- **Assessment history** — browser localStorage only, never sent to server
+- **Assessment history** — optionally backed up as an AES-256-GCM encrypted blob; the server stores only ciphertext and never holds the decryption key, which stays client-side
 
 ---
 
@@ -141,7 +159,7 @@ spring:
 ml:
   service:
     url: ${ML_SERVICE_URL:http://127.0.0.1:8001}
-    timeout-ms: 10000
+    timeout-ms: 40000
 
 samhsa:
   api:
