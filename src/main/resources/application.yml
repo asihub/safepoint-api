@@ -39,3 +39,7 @@ logging:
   level:
     com.safepoint: INFO
     org.springframework.web: WARN
+
+app:
+  version: 0.8.32
+  updated-at: 2026-05-05
