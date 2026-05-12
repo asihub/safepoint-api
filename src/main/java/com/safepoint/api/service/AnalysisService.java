@@ -50,14 +50,18 @@ public class AnalysisService {
         freeText = null;
       }
     }
-    if (freeText != null) {
+    if (freeText != null && !freeText.isBlank()) {
       String mlInput = freeText.trim();
       String lang = request.getLang();
       if (lang != null && !lang.equalsIgnoreCase("en")) {
         mlInput = translationService.translateToEnglish(mlInput, lang);
         log.info("Translated ML input from {} to en", lang);
       }
-      mlResult = mlService.analyze(mlInput);
+      try {
+        mlResult = mlService.analyze(mlInput);
+      } catch (Exception e) {
+        log.warn("ML service call failed, falling back to questionnaire only: {}", e.getMessage());
+      }
     }
 
     // Step 3 — Combine questionnaire + ML signals
