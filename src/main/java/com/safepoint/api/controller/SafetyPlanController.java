@@ -1,7 +1,7 @@
 package com.safepoint.api.controller;
 
-import com.safepoint.api.model.dto.SafetyPlanDto;
-import com.safepoint.api.model.entity.SafetyPlan;
+import com.safepoint.api.dto.SafetyPlanDto;
+import com.safepoint.api.entity.SafetyPlan;
 import com.safepoint.api.service.SafetyPlanService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

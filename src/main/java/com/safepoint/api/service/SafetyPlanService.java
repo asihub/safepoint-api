@@ -1,17 +1,14 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.model.dto.SafetyPlanDto;
-import com.safepoint.api.model.entity.SafetyPlan;
+import com.safepoint.api.dto.SafetyPlanDto;
+import com.safepoint.api.entity.SafetyPlan;
+import com.safepoint.api.util.HashUtils;
 import com.safepoint.api.repository.SafetyPlanRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Optional;
 
 @Service
@@ -27,7 +24,7 @@ public class SafetyPlanService {
    */
   @Transactional
   public SafetyPlan save(SafetyPlanDto dto) {
-    String hash = computeHash(dto.getUserCode(), dto.getPin());
+    String hash = HashUtils.computeHash(dto.getUserCode(), dto.getPin());
 
     SafetyPlan plan = repository.findByUserHash(hash)
         .orElse(new SafetyPlan());
@@ -51,7 +48,7 @@ public class SafetyPlanService {
    */
   @Transactional(readOnly = true)
   public Optional<SafetyPlan> get(String username, String pin) {
-    String hash = computeHash(username, pin);
+    String hash = HashUtils.computeHash(username, pin);
     return repository.findByUserHash(hash);
   }
 
@@ -60,7 +57,7 @@ public class SafetyPlanService {
    */
   @Transactional
   public boolean delete(String username, String pin) {
-    String hash = computeHash(username, pin);
+    String hash = HashUtils.computeHash(username, pin);
     if (repository.existsByUserHash(hash)) {
       repository.deleteByUserHash(hash);
       log.info("Safety plan deleted for hash prefix: {}", hash.substring(0, 8));
@@ -69,18 +66,4 @@ public class SafetyPlanService {
     return false;
   }
 
-  /**
-   * Computes a SHA-256 hash of username + ":" + pin.
-   * This is the only identifier stored — no PII, no reversible data.
-   */
-  private String computeHash(String username, String pin) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      String input = username.trim().toLowerCase() + ":" + pin.trim();
-      byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hashBytes);
-    } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("SHA-256 not available", e);
-    }
-  }
 }

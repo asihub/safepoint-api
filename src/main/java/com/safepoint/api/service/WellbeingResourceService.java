@@ -1,6 +1,6 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.model.entity.WellbeingResource;
+import com.safepoint.api.entity.WellbeingResource;
 import com.safepoint.api.repository.WellbeingResourceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;

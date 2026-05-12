@@ -1,6 +1,6 @@
 package com.safepoint.api.repository;
 
-import com.safepoint.api.model.entity.SafetyPlan;
+import com.safepoint.api.entity.SafetyPlan;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

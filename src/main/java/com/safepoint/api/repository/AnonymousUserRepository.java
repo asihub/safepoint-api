@@ -1,6 +1,6 @@
 package com.safepoint.api.repository;
 
-import com.safepoint.api.model.entity.AnonymousUser;
+import com.safepoint.api.entity.AnonymousUser;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

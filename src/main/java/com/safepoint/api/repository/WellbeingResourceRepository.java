@@ -1,6 +1,6 @@
 package com.safepoint.api.repository;
 
-import com.safepoint.api.model.entity.WellbeingResource;
+import com.safepoint.api.entity.WellbeingResource;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;

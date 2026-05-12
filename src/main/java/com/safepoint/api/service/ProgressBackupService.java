@@ -8,10 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
+import com.safepoint.api.util.HashUtils;
 import java.util.Optional;
 
 @Service
@@ -27,7 +24,7 @@ public class ProgressBackupService {
    */
   @Transactional
   public ProgressBackup save(ProgressBackupDto dto) {
-    String hash = computeHash(dto.getUserCode(), dto.getPin());
+    String hash = HashUtils.computeHash(dto.getUserCode(), dto.getPin());
 
     ProgressBackup backup = repository.findByUserHash(hash)
         .orElse(new ProgressBackup());
@@ -45,7 +42,7 @@ public class ProgressBackupService {
    */
   @Transactional(readOnly = true)
   public Optional<ProgressBackup> get(String userCode, String pin) {
-    String hash = computeHash(userCode, pin);
+    String hash = HashUtils.computeHash(userCode, pin);
     return repository.findByUserHash(hash);
   }
 
@@ -54,7 +51,7 @@ public class ProgressBackupService {
    */
   @Transactional(readOnly = true)
   public boolean exists(String userCode, String pin) {
-    String hash = computeHash(userCode, pin);
+    String hash = HashUtils.computeHash(userCode, pin);
     return repository.existsByUserHash(hash);
   }
 
@@ -63,7 +60,7 @@ public class ProgressBackupService {
    */
   @Transactional
   public boolean delete(String userCode, String pin) {
-    String hash = computeHash(userCode, pin);
+    String hash = HashUtils.computeHash(userCode, pin);
     if (repository.existsByUserHash(hash)) {
       repository.deleteByUserHash(hash);
       log.info("Progress backup deleted for hash prefix: {}", hash.substring(0, 8));
@@ -72,14 +69,4 @@ public class ProgressBackupService {
     return false;
   }
 
-  private String computeHash(String username, String pin) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      String input = username.trim().toLowerCase() + ":" + (pin != null ? pin.trim() : "");
-      byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hashBytes);
-    } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("SHA-256 not available", e);
-    }
-  }
 }

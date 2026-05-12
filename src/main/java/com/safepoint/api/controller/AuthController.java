@@ -1,6 +1,6 @@
 package com.safepoint.api.controller;
 
-import com.safepoint.api.model.dto.AuthDto;
+import com.safepoint.api.dto.AuthDto;
 import com.safepoint.api.service.AnonymousUserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -1,4 +1,4 @@
-package com.safepoint.api.model.entity;
+package com.safepoint.api.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

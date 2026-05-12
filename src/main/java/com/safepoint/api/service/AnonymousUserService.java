@@ -1,7 +1,7 @@
 package com.safepoint.api.service;
 
-import com.safepoint.api.model.dto.AuthDto;
-import com.safepoint.api.model.entity.AnonymousUser;
+import com.safepoint.api.dto.AuthDto;
+import com.safepoint.api.entity.AnonymousUser;
 import com.safepoint.api.repository.AnonymousUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +18,7 @@ import java.util.List;
 public class AnonymousUserService {
 
   private final AnonymousUserRepository repository;
-  private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+  private final BCryptPasswordEncoder passwordEncoder;
   private final SecureRandom random = new SecureRandom();
 
   // Word lists for human-readable username generation

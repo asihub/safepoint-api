@@ -3,6 +3,7 @@ package com.safepoint.api.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
@@ -12,6 +13,11 @@ public class AppConfig {
 
   @Value("${ml.service.timeout-ms:10000}")
   private int mlTimeoutMs;
+
+  @Bean
+  public BCryptPasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder();
+  }
 
   /**
    * RestTemplate for calling the internal Python ML service.
