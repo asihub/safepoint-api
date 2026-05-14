@@ -4,7 +4,10 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ''
+  liquibase:
+    enabled: false
   jpa:
+
     hibernate:
       ddl-auto: create-drop
     show-sql: false

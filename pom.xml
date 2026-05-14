@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.safepoint</groupId>
 	<artifactId>safe-point-api</artifactId>
-	<version>0.8.34</version>
+	<version>0.8.35</version>
 	<name/>
 	<description/>
 	<url/>
@@ -55,6 +55,10 @@
 			<version>3.0.2</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-liquibase</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
