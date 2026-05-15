@@ -30,6 +30,9 @@ public class WellbeingResource {
   @Column(nullable = false)
   private String category;
 
+  @Column(nullable = false, length = 5)
+  private String language = "en";
+
   @Column(columnDefinition = "TEXT")
   private String description;
 

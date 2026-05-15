@@ -13,6 +13,8 @@ public interface WellbeingResourceRepository extends JpaRepository<WellbeingReso
 
   List<WellbeingResource> findAllByOrderByCategoryAscTitleAsc();
 
+  List<WellbeingResource> findAllByLanguageOrderByCategoryAscTitleAsc(String language);
+
   /** Resources that have no excerpt or an excerpt older than the given cutoff. */
   @Query("SELECT r FROM WellbeingResource r WHERE r.excerpt IS NULL OR r.excerptUpdatedAt < :cutoff")
   List<WellbeingResource> findStaleOrMissingExcerpts(LocalDateTime cutoff);

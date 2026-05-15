@@ -44,5 +44,5 @@ logging:
     liquibase: INFO
 
 app:
-  version: 0.8.35
-  updated-at: 2026-05-14
+  version: 0.8.36
+  updated-at: 2026-05-15

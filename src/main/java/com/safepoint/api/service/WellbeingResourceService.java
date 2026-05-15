@@ -37,8 +37,9 @@ public class WellbeingResourceService {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  public List<WellbeingResource> getAll() {
-    return repository.findAllByOrderByCategoryAscTitleAsc();
+  public List<WellbeingResource> getAll(String lang) {
+    String effectiveLang = ("es".equals(lang)) ? "es" : "en";
+    return repository.findAllByLanguageOrderByCategoryAscTitleAsc(effectiveLang);
   }
 
   // ── Scheduled excerpt generation ──────────────────────────────────────────

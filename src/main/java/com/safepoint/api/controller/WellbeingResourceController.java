@@ -20,9 +20,9 @@ public class WellbeingResourceController {
   private final WellbeingResourceService service;
 
   @GetMapping
-  @Operation(summary = "Get all wellbeing resources", description = "Returns all resources ordered by category and title.")
-  public ResponseEntity<List<WellbeingResource>> getAll() {
-    return ResponseEntity.ok(service.getAll());
+  @Operation(summary = "Get all wellbeing resources", description = "Returns resources for the given language (en/es). Defaults to en.")
+  public ResponseEntity<List<WellbeingResource>> getAll(@RequestParam(required = false) String lang) {
+    return ResponseEntity.ok(service.getAll(lang));
   }
 
   @PostMapping("/{id}/refresh-excerpt")
