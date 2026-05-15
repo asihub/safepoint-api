@@ -7,5 +7,6 @@
 
     <include file="db/changelog/changes/V1__baseline.sql"/>
     <include file="db/changelog/changes/V2__wellbeing_language.sql"/>
+    <include file="db/changelog/changes/V3__wellbeing_resource_status.sql"/>
 
 </databaseChangeLog>

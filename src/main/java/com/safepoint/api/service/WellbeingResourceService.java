@@ -2,9 +2,8 @@ package com.safepoint.api.service;
 
 import com.safepoint.api.entity.WellbeingResource;
 import com.safepoint.api.repository.WellbeingResourceRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -20,16 +19,19 @@ import java.util.Map;
 public class WellbeingResourceService {
 
   private final WellbeingResourceRepository repository;
-  private final RestTemplate restTemplate;
+  private final RestTemplate mlRestTemplate;
+  private final RestTemplate urlCheckRestTemplate;
 
   @Value("${ml.service.url:http://localhost:8001}")
   private String mlServiceUrl;
 
   public WellbeingResourceService(
       WellbeingResourceRepository repository,
-      @Qualifier("mlRestTemplate") RestTemplate restTemplate) {
+      @Qualifier("mlRestTemplate") RestTemplate mlRestTemplate,
+      @Qualifier("urlCheckRestTemplate") RestTemplate urlCheckRestTemplate) {
     this.repository = repository;
-    this.restTemplate = restTemplate;
+    this.mlRestTemplate = mlRestTemplate;
+    this.urlCheckRestTemplate = urlCheckRestTemplate;
   }
 
   /** Excerpt refresh interval — 7 days */
@@ -39,14 +41,49 @@ public class WellbeingResourceService {
 
   public List<WellbeingResource> getAll(String lang) {
     String effectiveLang = ("es".equals(lang)) ? "es" : "en";
-    return repository.findAllByLanguageOrderByCategoryAscTitleAsc(effectiveLang);
+    return repository.findByStatusAndLanguageOrderByCategoryAscTitleAsc("AVAILABLE", effectiveLang);
+  }
+
+  // ── URL availability check ────────────────────────────────────────────────
+
+  /**
+   * HEAD-checks every wellbeing resource URL and persists AVAILABLE / UNAVAILABLE status.
+   * Only saves when status actually changes. Called by the weekly scheduled job and
+   * by the Actuator endpoint for manual triggers.
+   */
+  @Transactional
+  public void checkAllUrlAvailability() {
+    List<WellbeingResource> all = repository.findAll();
+    log.info("Checking URL availability for {} resources...", all.size());
+    int unavailableCount = 0;
+
+    for (WellbeingResource resource : all) {
+      boolean reachable = isUrlAvailable(resource.getUrl());
+      String newStatus = reachable ? "AVAILABLE" : "UNAVAILABLE";
+
+      if (!newStatus.equals(resource.getStatus())) {
+        resource.setStatus(newStatus);
+        repository.save(resource);
+        if (!reachable) {
+          log.warn("Wellbeing resource [id={}, url={}] is unreachable — marked UNAVAILABLE",
+              resource.getId(), resource.getUrl());
+        } else {
+          log.info("Wellbeing resource [id={}, url={}] is reachable again — marked AVAILABLE",
+              resource.getId(), resource.getUrl());
+        }
+      }
+
+      if (!reachable) unavailableCount++;
+    }
+
+    log.info("URL availability check complete: {}/{} unavailable.", unavailableCount, all.size());
   }
 
   // ── Scheduled excerpt generation ──────────────────────────────────────────
 
   /**
-   * Runs weekly (Sunday at 2am) to regenerate stale or missing excerpts.
-   * Calls Python ML service POST /summarize for each resource.
+   * Runs weekly (Sunday at 2am) to regenerate stale or missing excerpts,
+   * then performs a URL availability pass for all resources.
    */
   @Scheduled(cron = "0 0 2 * * SUN")
   @Transactional
@@ -56,33 +93,33 @@ public class WellbeingResourceService {
 
     if (stale.isEmpty()) {
       log.info("All wellbeing resource excerpts are up to date.");
-      return;
-    }
+    } else {
+      log.info("Refreshing excerpts for {} resources...", stale.size());
+      int success = 0;
 
-    log.info("Refreshing excerpts for {} resources...", stale.size());
-    int success = 0;
-
-    for (WellbeingResource resource : stale) {
-      try {
-        String excerpt = fetchExcerpt(resource.getUrl());
-        if (excerpt != null) {
-          resource.setExcerpt(excerpt);
-          resource.setExcerptUpdatedAt(LocalDateTime.now());
-          repository.save(resource);
-          success++;
-          log.info("Excerpt updated: {}", resource.getTitle());
+      for (WellbeingResource resource : stale) {
+        try {
+          String excerpt = fetchExcerpt(resource.getUrl());
+          if (excerpt != null) {
+            resource.setExcerpt(excerpt);
+            resource.setExcerptUpdatedAt(LocalDateTime.now());
+            repository.save(resource);
+            success++;
+            log.info("Excerpt updated: {}", resource.getTitle());
+          }
+          Thread.sleep(2000);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return;
+        } catch (Exception e) {
+          log.error("Failed to update excerpt for {}: {}", resource.getTitle(), e.getMessage());
         }
-        // Small delay to avoid hammering HuggingFace API
-        Thread.sleep(2000);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
-      } catch (Exception e) {
-        log.error("Failed to update excerpt for {}: {}", resource.getTitle(), e.getMessage());
       }
+
+      log.info("Excerpt refresh complete: {}/{} updated.", success, stale.size());
     }
 
-    log.info("Excerpt refresh complete: {}/{} updated.", success, stale.size());
+    checkAllUrlAvailability();
   }
 
   /**
@@ -103,7 +140,6 @@ public class WellbeingResourceService {
 
   /**
    * Manually trigger excerpt refresh for all resources that have no excerpt.
-   * Skips resources that already have one (use the scheduled job for stale refresh).
    */
   @Transactional
   public int refreshMissingExcerpts() {
@@ -126,16 +162,16 @@ public class WellbeingResourceService {
           resource.setExcerptUpdatedAt(LocalDateTime.now());
           repository.save(resource);
           success++;
-          log.info("[{}/{}] \u2713 Updated: {}", i + 1, total, resource.getTitle());
+          log.info("[{}/{}] ✓ Updated: {}", i + 1, total, resource.getTitle());
         } else {
-          log.warn("[{}/{}] \u2717 No excerpt: {}", i + 1, total, resource.getTitle());
+          log.warn("[{}/{}] ✗ No excerpt: {}", i + 1, total, resource.getTitle());
         }
         Thread.sleep(2000);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         break;
       } catch (Exception e) {
-        log.error("[{}/{}] \u2717 Failed: {} \u2014 {}", i + 1, total, resource.getTitle(), e.getMessage());
+        log.error("[{}/{}] ✗ Failed: {} — {}", i + 1, total, resource.getTitle(), e.getMessage());
       }
     }
 
@@ -146,6 +182,19 @@ public class WellbeingResourceService {
   // ── Internal ──────────────────────────────────────────────────────────────
 
   /**
+   * Returns true if the URL responds with a non-error HTTP status (< 400).
+   * Returns false on 4xx, 5xx, connection failure, or timeout.
+   */
+  boolean isUrlAvailable(String url) {
+    try {
+      urlCheckRestTemplate.headForHeaders(url);
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
    * Calls Python ML service to fetch and summarize a resource URL.
    * Returns null if the ML service is unavailable or summarization fails.
    */
@@ -154,7 +203,7 @@ public class WellbeingResourceService {
     try {
       String endpoint = mlServiceUrl + "/summarize";
       Map<String, String> request = Map.of("url", url);
-      Map<String, Object> response = restTemplate.postForObject(endpoint, request, Map.class);
+      Map<String, Object> response = mlRestTemplate.postForObject(endpoint, request, Map.class);
       if (response != null) {
         return (String) response.get("excerpt");
       }

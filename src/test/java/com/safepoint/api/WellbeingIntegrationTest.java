@@ -73,4 +73,16 @@ class WellbeingIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].language").value("en"));
     }
+
+    @Test @DisplayName("GET /api/v1/wellbeing — UNAVAILABLE resources are excluded")
+    void unavailable_resources_are_excluded() throws Exception {
+        WellbeingResource unavailable = resource("Broken Article", "Anxiety", "en", "https://broken.example.com");
+        unavailable.setStatus("UNAVAILABLE");
+        repository.save(unavailable);
+
+        mockMvc.perform(get("/api/v1/wellbeing").param("lang", "en"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("Managing Anxiety"));
+    }
 }

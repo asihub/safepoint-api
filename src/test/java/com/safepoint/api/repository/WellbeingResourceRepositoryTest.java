@@ -83,4 +83,31 @@ class WellbeingResourceRepositoryTest {
         WellbeingResource saved = repository.findById(r.getId()).orElseThrow();
         assertThat(saved.getLanguage()).isEqualTo("en");
     }
+
+    @Test @DisplayName("findByStatusAndLanguage — excludes UNAVAILABLE resources")
+    void find_by_status_and_language_excludes_unavailable() {
+        WellbeingResource broken = resource("Broken Article", "Anxiety", "en", "https://broken.example.com");
+        broken.setStatus("UNAVAILABLE");
+        repository.save(broken);
+
+        List<WellbeingResource> result =
+                repository.findByStatusAndLanguageOrderByCategoryAscTitleAsc("AVAILABLE", "en");
+
+        assertThat(result).hasSize(2);
+        assertThat(result).allMatch(r -> "AVAILABLE".equals(r.getStatus()));
+        assertThat(result).noneMatch(r -> "https://broken.example.com".equals(r.getUrl()));
+    }
+
+    @Test @DisplayName("findByStatusAndLanguage — returns UNAVAILABLE resources when queried with UNAVAILABLE")
+    void find_by_status_and_language_returns_unavailable_when_requested() {
+        WellbeingResource broken = resource("Broken Article", "Anxiety", "en", "https://broken.example.com");
+        broken.setStatus("UNAVAILABLE");
+        repository.save(broken);
+
+        List<WellbeingResource> result =
+                repository.findByStatusAndLanguageOrderByCategoryAscTitleAsc("UNAVAILABLE", "en");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getUrl()).isEqualTo("https://broken.example.com");
+    }
 }

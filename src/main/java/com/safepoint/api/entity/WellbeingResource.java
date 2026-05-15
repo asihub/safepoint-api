@@ -44,6 +44,10 @@ public class WellbeingResource {
   @Column(name = "excerpt_updated_at")
   private LocalDateTime excerptUpdatedAt;
 
+  /** AVAILABLE or UNAVAILABLE — set by the weekly URL availability check. */
+  @Column(nullable = false, length = 20)
+  private String status = "AVAILABLE";
+
   @CreationTimestamp
   @Column(name = "created_at", updatable = false)
   private LocalDateTime createdAt;
